@@ -173,11 +173,34 @@ where the card is. On the field, GY or banished: team-wide (rule 2).
 - **Test:** the core test checks a duelist choice, return to owner, and a hand effect's scope
   (sees 7 of 13 hand cards and 14 of 15 Deck cards, mills from its own duelist's Deck).
 
+- **Duelist choice (done):** when a chain link is activated (after costs and targets), the core
+  reads the effect's operation info and asks the activating team, either teammate, which duelist
+  it applies to:
+  - **own team** (rules 1 and 2): only for team-wide effects (not activated from a hand) that draw
+    (`CATEGORY_DRAW`), mill (`CATEGORY_DECKDES`), or add/return cards to the hand or Deck
+    (`CATEGORY_TOHAND`/`CATEGORY_TODECK`) from the GY or banished;
+  - **opposing team** (rule 3): for any effect that makes that team discard (`CATEGORY_HANDES`),
+    draw or mill.
+  The prompt is an option window ("Red: name" / "Blue: name"). The choice is announced to everyone
+  ("Your choice / Your opponent's choice: [Blue: name]") and stored on the chain link
+  (`chain::team_choice`). While that link resolves:
+  - draws, mills and Deck-top effects use the chosen duelist's Deck;
+  - cards moving into that team's hand or Deck go to the chosen duelist;
+  - the opposing team's hand, Deck and Extra Deck are limited to the chosen duelist (rule 3).
+  The server sends every duelist's name to all clients and observers at duel start
+  (`MSG_TEAM_INFO`); the client turns them into the option strings (`TEAM_DUELIST_DESC`).
+- **Test:** a forced trigger makes both players draw 1; the test checks both prompts, both
+  announcements, and that each draw comes from the chosen duelist's Deck.
+
 ### Known gaps (still to do in Milestone 2)
-- **Duelist-choice prompt:** team-wide effects that draw, add to the hand, shuffle into the Deck or
-  use the top of a Deck, and effects on the opposing team (rule 3), should ask for a duelist.
-  Today they fall back to the owner duelist, or the duelist with more cards. The opposing team's
-  hand and Deck are still seen team-wide.
+- **Choice detection relies on operation info.** An effect that touches a hand or Deck without
+  declaring it (e.g. looking at the opponent's hand, or effects with no `SetOperationInfo`) gets no
+  prompt, and falls back to the owner duelist or the duelist with more cards. Effects that are not
+  chain links (continuous effects) never prompt.
+- **Choice is per team, per chain link.** An effect that adds two cards to the hand puts both
+  with the same duelist.
+- **Replays:** the "Red/Blue: name" strings come from `MSG_TEAM_INFO`, which is not in the replay
+  stream, so replays show unknown strings for the choice.
 - **Core code that reads the hands directly, not through the search functions:** Fusion and
   Ritual material lists, Tribute lists from the hand, random hand discards. These still see the
   whole team hand.

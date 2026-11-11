@@ -14,6 +14,10 @@
 //     effect active from the hand (rule 1: bound to duelist 0). On turn 3 it reports what it sees
 //     and mills 1: it must see only duelist 0's hand and Deck, the whole opposing hand, and mill
 //     from duelist 0's Deck.
+//   - (Milestone 2) duelist choice. A forced trigger of team 1 on turn 2 makes both players draw 1
+//     (operation info: CATEGORY_DRAW, PLAYER_ALL). The core must ask team 1 which of its duelists
+//     draws (we pick duelist 1) and which opposing duelist draws (we pick duelist 0), announce both
+//     choices, and draw from those duelists' Decks.
 // Build/run: see tests/run_core_test.ps1
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
@@ -72,6 +76,29 @@ function c3001.op(e,tp)
 end
 )";
 static int scope_seen[3] = { -1, -1, -1 };
+static constexpr uint32_t CHOOSER_CODE = 3002;
+static const char CHOOSER_SCRIPT[] = R"(
+function c3002.initial_effect(c)
+	local e=Effect.CreateEffect(c)
+	e:SetCategory(0x10000)    -- CATEGORY_DRAW
+	e:SetType(0x2+0x200)      -- EFFECT_TYPE_FIELD+EFFECT_TYPE_TRIGGER_F
+	e:SetCode(0x1000+0x2)     -- EVENT_PHASE+PHASE_STANDBY
+	e:SetRange(0x4)           -- LOCATION_MZONE
+	e:SetCountLimit(1)
+	e:SetCondition(function() return Duel.GetTurnCount()==2 end)
+	e:SetTarget(c3002.tg)
+	e:SetOperation(c3002.op)
+	c:RegisterEffect(e)
+end
+function c3002.tg(e,tp,eg,ep,ev,re,r,rp,chk)
+	if chk==0 then return true end
+	Duel.SetOperationInfo(0,0x10000,nil,0,3,1)  -- CATEGORY_DRAW, PLAYER_ALL, 1 card each
+end
+function c3002.op(e,tp)
+	Duel.Draw(tp,1,0x40)
+	Duel.Draw(1-tp,1,0x40)
+end
+)";
 static const char MOVER_SCRIPT[] = R"(
 -- the core creates the c3000 table before loading this script
 function c3000.initial_effect(c)
@@ -108,7 +135,7 @@ static void card_reader(void*, uint32_t code, OCG_CardData* data) {
 	data->race = RACE_WARRIOR;
 	data->attack = 1000;
 	data->defense = 1000;
-	if(code == MOVER_CODE || code == SCOPED_CODE)
+	if(code == MOVER_CODE || code == SCOPED_CODE || code == CHOOSER_CODE)
 		data->type = TYPE_MONSTER | TYPE_EFFECT;
 }
 static void card_reader_done(void*, OCG_CardData*) {}
@@ -117,6 +144,8 @@ static int script_reader(void*, OCG_Duel duel, const char* name) {
 		return pLoadScript(duel, MOVER_SCRIPT, sizeof(MOVER_SCRIPT) - 1, name);
 	if(std::strstr(name, "c3001.lua"))
 		return pLoadScript(duel, SCOPED_SCRIPT, sizeof(SCOPED_SCRIPT) - 1, name);
+	if(std::strstr(name, "c3002.lua"))
+		return pLoadScript(duel, CHOOSER_SCRIPT, sizeof(CHOOSER_SCRIPT) - 1, name);
 	return 0; // vanilla cards need no scripts
 }
 static void log_handler(void*, const char* str, int type) {
@@ -190,6 +219,9 @@ int main(int argc, char** argv) {
 		hi.team = 0; hi.con = 0; hi.duelist = 0; hi.loc = LOCATION_HAND; hi.pos = POS_FACEDOWN_DEFENSE;
 		hi.code = SCOPED_CODE;
 		pNewCard(duel, &hi);
+		ci.seq = 1;
+		ci.code = CHOOSER_CODE;
+		pNewCard(duel, &ci);
 	}
 	CHECK(pQueryCount(duel, 0, LOCATION_DECK) == 27, "team 0 deck should hold both decks (27), got %u", pQueryCount(duel, 0, LOCATION_DECK));
 	pStartDuel(duel);
@@ -200,6 +232,8 @@ int main(int argc, char** argv) {
 	bool opening_checked = false;
 	bool saw_hand_limit_discard = false;
 	bool checked_moves[2] = {};
+	int choice_prompts = 0;              // duelist-choice prompts answered
+	std::vector<uint64_t> announced;     // HINT_OPSELECTED descriptions
 	int winner = -1, win_reason = -1;
 	bool done = false;
 	int guard = 0;
@@ -255,33 +289,49 @@ int main(int argc, char** argv) {
 					uint32_t left1 = pQueryCount(duel, tp, LOCATION_DECK);
 					(void)left1;
 					CHECK(draws_this_turn[tp][0] == 1, "turn %d: duelist 0 of team %u should draw 1, drew %d", turn, tp, draws_this_turn[tp][0]);
-					CHECK(draws_this_turn[tp][1] == 1, "turn %d: duelist 1 of team %u should draw 1, drew %d", turn, tp, draws_this_turn[tp][1]);
+					// On turn 2 the scripted effect made team 1's chosen duelist (1) draw once more
+					const int want1 = turn == 2 ? 2 : 1;
+					CHECK(draws_this_turn[tp][1] == want1, "turn %d: duelist 1 of team %u should draw %d, drew %d", turn, tp, want1, draws_this_turn[tp][1]);
+				}
+				if(turn == 2) {
+					uint32_t h0[2], h1[2], dk0[2]; hand_by_duelist(duel, 0, h0); hand_by_duelist(duel, 1, h1);
+					loc_by_duelist(duel, 0, LOCATION_DECK, dk0);
+					std::printf("  turn 2: after the choice draw: team 1 hand %u/%u, team 0 hand %u/%u, team 0 Deck %u/%u\n",
+					            h1[0], h1[1], h0[0], h0[1], dk0[0], dk0[1]);
+					CHECK(choice_prompts == 2, "expected 2 duelist-choice prompts (own team, opposing team), got %d", choice_prompts);
+					CHECK(announced.size() == 2 && announced[0] == TEAM_DUELIST_DESC + 1 * 2 + 1 && announced[1] == TEAM_DUELIST_DESC + 0 * 2 + 0,
+					      "both choices should be announced (team 1 duelist 1, then team 0 duelist 0)");
+					CHECK(h1[0] == 6 && h1[1] == 7, "team 1's chosen duelist 1 should draw (want 6/7)");
+					CHECK(h0[0] == 7 && h0[1] == 5, "team 0's chosen duelist 0 should draw (want 7/5)");
+					CHECK(dk0[0] == 14 && dk0[1] == 2, "team 0's draw should come from duelist 0's Deck (want 14/2)");
 				}
 				if(turn == 3) {
-					// Duelist 0: 6 in hand + 1 drawn = 7, Deck 20-5-1 = 14 (team: 13 in hand, 15 in Deck).
+					// Duelist 0: 7 in hand (incl. the turn 2 effect draw) + 1 drawn = 8,
+					// Deck 20-5-1-1 = 13 (team: 14 in hand, 14 in Deck).
 					// Opposing team: 6 + 6 in hand. Then the effect milled 1 from duelist 0's Deck.
 					std::printf("  turn 3: hand-scoped effect saw own hand %d, own Deck %d, opposing hand %d\n",
 					            scope_seen[0], scope_seen[1], scope_seen[2]);
-					CHECK(scope_seen[0] == 7, "a hand effect should see only its duelist's hand (want 7, team has 13)");
-					CHECK(scope_seen[1] == 14, "a hand effect should see only its duelist's Deck (want 14, team has 15)");
+					CHECK(scope_seen[0] == 8, "a hand effect should see only its duelist's hand (want 8, team has 14)");
+					CHECK(scope_seen[1] == 13, "a hand effect should see only its duelist's Deck (want 13, team has 14)");
 					CHECK(scope_seen[2] == 12, "the opposing hand stays team-wide for now (want 12)");
 					uint32_t dk[2]; loc_by_duelist(duel, 0, LOCATION_DECK, dk);
 					std::printf("  turn 3: team 0 Deck after milling 1: %u/%u\n", dk[0], dk[1]);
-					CHECK(dk[0] == 13 && dk[1] == 1, "the mill should come from duelist 0's Deck (want 13/1)");
+					CHECK(dk[0] == 12 && dk[1] == 1, "the mill should come from duelist 0's Deck (want 12/1)");
 				}
 				if(turn == 4) {
-					// 7/7 in hand (5 opening + draws on turns 2 and 4) went to the GY and back with duelist 0 chosen
+					// 7/7 in hand plus the card duelist 1 discarded on turn 2 (its extra effect draw) went to
+					// the GY and back with duelist 0 chosen
 					uint32_t h[2]; hand_by_duelist(duel, 1, h);
 					std::printf("  turn 4: team 1 hand after hand -> GY -> hand (duelist 0 chosen): %u/%u\n", h[0], h[1]);
-					CHECK(h[0] == 14 && h[1] == 0, "with duelist 0 chosen, every card should join duelist 0's hand (want 14/0)");
+					CHECK(h[0] == 15 && h[1] == 0, "with duelist 0 chosen, every card should join duelist 0's hand (want 15/0)");
 					checked_moves[0] = true;
 				}
 				if(turn == 6) {
-					// Turn 4 End Phase discarded 8 from duelist 0's 14, turn 6 drew 1 each (hand 7/1).
-					// Hand + GY (16 cards: 8 owned by each duelist) then went back to the hand with no choice.
+					// Every team 1 card outside the Deck went to the GY and back to the hand with no choice.
+					// Owners: duelist 0 = 5 opening + 3 draws, duelist 1 = 5 opening + 4 draws (one by effect).
 					uint32_t h[2]; hand_by_duelist(duel, 1, h);
 					std::printf("  turn 6: team 1 hand after hand -> GY -> hand (no choice): %u/%u\n", h[0], h[1]);
-					CHECK(h[0] == 8 && h[1] == 8, "with no choice, every card should return to its owner duelist's hand (want 8/8)");
+					CHECK(h[0] == 8 && h[1] == 9, "with no choice, every card should return to its owner duelist's hand (want 8/9)");
 					checked_moves[1] = true;
 				}
 				int32_t resp = 7; // go to End Phase
@@ -296,7 +346,8 @@ int main(int argc, char** argv) {
 				break;
 			}
 			case MSG_SELECT_CHAIN: {
-				int32_t resp = -1;
+				// player(1) spe_count(1) forced(1) ...: a forced trigger must be chained (pick it)
+				int32_t resp = d[2] ? 0 : -1;
 				pSetResponse(duel, &resp, sizeof(resp));
 				responded = true;
 				break;
@@ -328,6 +379,28 @@ int main(int argc, char** argv) {
 				for(uint32_t i = 0; i < mn; ++i) resp.push_back(i);
 				pSetResponse(duel, resp.data(), static_cast<uint32_t>(resp.size() * 4));
 				responded = true;
+				break;
+			}
+			case MSG_SELECT_OPTION: {
+				// Team play duelist choice: options are TEAM_DUELIST_DESC + team*2 + duelist
+				uint8_t pl = d[0], cnt = d[1];
+				uint64_t o0 = 0, o1 = 0;
+				std::memcpy(&o0, d + 2, 8);
+				if(cnt > 1) std::memcpy(&o1, d + 10, 8);
+				const bool is_choice = cnt == 2 && o0 >= TEAM_DUELIST_DESC && o0 < TEAM_DUELIST_DESC + 4 && o1 == o0 + 1;
+				CHECK(is_choice, "unexpected option prompt on turn %d", turn);
+				const uint32_t team = static_cast<uint32_t>((o0 - TEAM_DUELIST_DESC) / 2);
+				std::printf("  turn %d: team %u asked to choose a duelist of team %u\n", turn, pl, team);
+				++choice_prompts;
+				int32_t resp = team == pl ? 1 : 0; // own team: duelist 1, opposing team: duelist 0
+				pSetResponse(duel, &resp, sizeof(resp));
+				responded = true;
+				break;
+			}
+			case MSG_HINT: {
+				uint64_t desc; std::memcpy(&desc, d + 2, 8);
+				if(d[0] == HINT_OPSELECTED && desc >= TEAM_DUELIST_DESC && desc < TEAM_DUELIST_DESC + 4)
+					announced.push_back(desc);
 				break;
 			}
 			case MSG_WIN: {
