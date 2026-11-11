@@ -16,6 +16,18 @@ $repo  = 'itsprofoak26-code/teamplay-updates'
 $site  = Join-Path $root 'updates'           # checkout of the Pages repo (ignored by this repo)
 $out   = Join-Path $root 'dist'
 
+# Runs a native command. Its stderr (git/gh progress and warnings) must not abort the script:
+# Windows PowerShell turns native stderr into errors under ErrorActionPreference=Stop.
+function Invoke-Native([string]$exe, [string[]]$arguments, [switch]$AllowFail) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & $exe @arguments 2>&1 | ForEach-Object { "$_" } | Out-Host
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prev
+    if ($code -and -not $AllowFail) { throw "$exe $($arguments -join ' ') failed ($code)" }
+}
+
+# 1. version
 $verFile = Join-Path $root 'TEAMPLAY_VERSION'
 $version = [int](Get-Content $verFile -Raw).Trim()
 if (-not $Rebuild) {
@@ -29,27 +41,25 @@ $cfg = if ($DebugBuild) { 'debug' } else { 'release' }
 if ($DebugBuild) { & "$root\build.ps1" -NoCopy } else { & "$root\build.ps1" -Release -NoCopy }
 
 # 3. package
-if (-not (Test-Path $site)) { & $gh repo clone $repo $site }
-git -C $site pull --ff-only
+if (-not (Test-Path $site)) { Invoke-Native $gh @('repo', 'clone', $repo, $site) }
+Invoke-Native git @('-C', $site, 'pull', '--ff-only')
 Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-python -I "$root\tools\package.py" --version $version --bin "$root\edopro\bin\$cfg" --run "$root\run" `
-    --cardscripts "$root\CardScripts" --out $out --site $site --notes $Notes
-if ($LASTEXITCODE) { throw 'packaging failed' }
+Invoke-Native python @('-I', "$root\tools\package.py", '--version', "$version", '--bin', "$root\edopro\bin\$cfg",
+    '--run', "$root\run", '--cardscripts', "$root\CardScripts", '--out', $out, '--site', $site, '--notes', $Notes)
 
 # 4. release assets
 $title = "Team Play v$version"
-& $gh release create "v$version" --repo $repo --title $title --notes ($(if ($Notes) { $Notes } else { $title })) `
-    "$out\update-v$version.zip" "$out\EDOPro-TeamPlay-v$version.zip"
-if ($LASTEXITCODE) { throw 'release upload failed' }
+$relNotes = if ($Notes) { $Notes } else { $title }
+Invoke-Native $gh @('release', 'create', "v$version", '--repo', $repo, '--title', $title, '--notes', $relNotes,
+    (Join-Path $out "update-v$version.zip"), (Join-Path $out "EDOPro-TeamPlay-v$version.zip"))
 
 # 5. Pages site
-git -C $site add -A
-git -C $site commit -m "Team Play v$version"
-git -C $site push
-if ($LASTEXITCODE) { throw 'site push failed' }
+Invoke-Native git @('-C', $site, 'add', '-A')
+Invoke-Native git @('-C', $site, 'commit', '-m', "Team Play v$version")
+Invoke-Native git @('-C', $site, 'push')
 
-# 6. record the version in this repo
-git -C $root add TEAMPLAY_VERSION
-git -C $root commit -m "Publish Team Play v$version" 2>$null
+# 6. record the version in this repo (nothing to commit on -Rebuild)
+Invoke-Native git @('-C', $root, 'add', 'TEAMPLAY_VERSION')
+Invoke-Native git @('-C', $root, 'commit', '-m', "Publish Team Play v$version") -AllowFail
 Write-Host "== Published v$version"
 Write-Host "   Download page: https://itsprofoak26-code.github.io/teamplay-updates/"
