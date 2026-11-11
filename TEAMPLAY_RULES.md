@@ -192,20 +192,27 @@ where the card is. On the field, GY or banished: team-wide (rule 2).
     draw or mill.
   The prompt is an option window ("Red: name" / "Blue: name"). The choice is announced to everyone
   ("Your choice / Your opponent's choice: [Blue: name]") and stored on the chain link
-  (`chain::team_choice`). While that link resolves:
+  (`chain::team_choice`). For the rest of that link (cost, target and resolution), for that team:
+  - its hand, Deck and Extra Deck are limited to the chosen duelist (either team);
   - draws, mills and Deck-top effects use the chosen duelist's Deck;
-  - cards moving into that team's hand or Deck go to the chosen duelist;
-  - the opposing team's hand, Deck and Extra Deck are limited to the chosen duelist (rule 3).
+  - cards moving into its hand or Deck go to the chosen duelist.
   The server sends every duelist's name to all clients and observers at duel start
   (`MSG_TEAM_INFO`); the client turns them into the option strings (`TEAM_DUELIST_DESC`).
-- **Test:** a forced trigger makes both players draw 1; the test checks both prompts, both
-  announcements, and that each draw comes from the chosen duelist's Deck.
+- **Asked when first needed (done):** if a team-wide chain link has no choice yet, the core asks
+  (`Processors::TeamChooseDuelist`) just before `Duel.Draw`, `Duel.DiscardDeck` (also as a cost),
+  `Duel.SortDecktop/SortDeckbottom`, `Duel.ConfirmDecktop`, and `Duel.SendtoHand/SendtoDeck` of
+  cards from the GY or banished. A choice made during the cost is reused at activation, so there
+  is never a second prompt for the same team.
+- **Tests:** `teamplay_core_test` (a both-players draw: both prompts, both announcements, draws
+  from the chosen Decks) and `teamplay_choice_test` (a mill cost like Card Trooper asks once;
+  a reveal-top effect with no operation info like Pot of Duality asks at the reveal; a
+  Card Destruction-like effect makes only one chosen duelist per team discard and redraw).
 
 ### Known gaps (still to do in Milestone 2)
-- **Choice detection relies on operation info.** An effect that touches a hand or Deck without
-  declaring it (e.g. looking at the opponent's hand, or effects with no `SetOperationInfo`) gets no
-  prompt, and falls back to the owner duelist or the duelist with more cards. Effects that are not
-  chain links (continuous effects) never prompt.
+- **Some reads have no choice point.** Effects that only *look* (e.g. at the opponent's hand)
+  or read the Deck top through `GetDecktopGroup` before anything above runs, and effects that
+  are not chain links (continuous effects), never prompt. They fall back to team-wide access,
+  the owner duelist, or the duelist with more cards.
 - **Choice is per team, per chain link.** An effect that adds two cards to the hand puts both
   with the same duelist.
 - **Replays:** the "Red/Blue: name" strings come from `MSG_TEAM_INFO`, which is not in the replay
