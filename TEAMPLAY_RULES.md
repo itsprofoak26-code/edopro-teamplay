@@ -153,14 +153,37 @@ where the card is. On the field, GY or banished: team-wide (rule 2).
   will set it. For now only the test hook `Debug.SetTeamDestDuelist(team, duelist)` does.
 - **Shuffling (no change needed):** each duelist's Deck is the cards carrying their tag, in list
   order. Shuffling the whole list gives each duelist an independently shuffled Deck, and
-  "top of Deck" for a duelist is their last tagged card. What still needs work is effects that
-  read the top of the combined list directly (see below).
-- **Test:** the core test now checks a duelist choice (all cards to duelist 0) and return to owner.
+  "top of Deck" for a duelist is their last tagged card.
+- **Effect scope, rule 1 (done):** `field::team_scope(team)` gives the duelist the current effect
+  is bound to, from `core.reason_effect`:
+  - a chain link being activated or resolved uses where it was activated and the card's duelist
+    at that moment (`chain::triggering_duelist`), so a hand trap that discards itself as a cost
+    stays bound;
+  - before a chain link exists (activation checks) and for continuous effects, it uses where the
+    card is now; activating a Spell/Trap card itself is always team-wide.
+  Searches, counts and selections (`filter_matching_card`, `filter_field_card`: e.g.
+  `GetMatchingGroup`, `IsExistingMatchingCard`, `GetFieldGroupCount`, `SelectMatchingCard`,
+  `DiscardHand`) skip the other duelist's hand, Deck and Extra Deck.
+- **Top/bottom of the Deck (done):** milling, `GetDecktopGroup`/`GetDeckbottomGroup`,
+  `ConfirmDecktop`, Extra Deck top, Sort Decktop, `IsPlayerCanDraw(count)`, the discard-Deck
+  checks and effect draws act on **one duelist's Deck**: the scoped duelist; else the chosen
+  duelist; else (until the choice prompt exists) the duelist with more cards. The core moves that
+  duelist's cards to the top (or bottom) of the shared list first. Each duelist's own order is
+  unchanged, so this does not change the game.
+- **Test:** the core test checks a duelist choice, return to owner, and a hand effect's scope
+  (sees 7 of 13 hand cards and 14 of 15 Deck cards, mills from its own duelist's Deck).
 
 ### Known gaps (still to do in Milestone 2)
-- **Deck-top effects:** "look at / send / excavate the top N cards" still read the combined list.
-- **Effect draws:** "draw" from a card effect uses that card's duelist. Otherwise it uses the duelist with more cards left. Nobody chooses a duelist yet.
-- **Other hand/Deck effects:** searches, milling, looking at the top of the Deck and card counts still see the whole team's hand and Deck.
-- **Shuffling:** shuffling the Deck mixes both duelists' cards together. Each card still keeps its owner tag.
-- **Client:** shows one Deck pile and one Extra Deck pile with combined counts.
+- **Duelist-choice prompt:** team-wide effects that draw, add to the hand, shuffle into the Deck or
+  use the top of a Deck, and effects on the opposing team (rule 3), should ask for a duelist.
+  Today they fall back to the owner duelist, or the duelist with more cards. The opposing team's
+  hand and Deck are still seen team-wide.
+- **Core code that reads the hands directly, not through the search functions:** Fusion and
+  Ritual material lists, Tribute lists from the hand, random hand discards. These still see the
+  whole team hand.
+- **Reversed Deck display:** the face-up top card of a reversed Deck is shown for the combined list.
+- **Client:**
+  - shows one Deck pile and one Extra Deck pile with combined counts;
+  - is not told when the core reorders a team's Deck list. This is harmless today because Deck
+    cards are anonymous, but the red/blue per-duelist piles will need it.
 - **Replays:** not tested.

@@ -10,7 +10,12 @@
 //             (Debug.SetTeamDestDuelist) -> every card goes to duelist 0's hand
 //     turn 6: sends the hand to the GY, then adds the GY to the hand with no choice
 //             -> every card returns to its owner duelist's hand
+//   - (Milestone 2) effect scope. A scripted card in team 0 duelist 0's hand has a continuous
+//     effect active from the hand (rule 1: bound to duelist 0). On turn 3 it reports what it sees
+//     and mills 1: it must see only duelist 0's hand and Deck, the whole opposing hand, and mill
+//     from duelist 0's Deck.
 // Build/run: see tests/run_core_test.ps1
+#define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
@@ -46,6 +51,27 @@ static constexpr uint32_t CODE[2][2] = { { 1001, 1002 }, { 2001, 2002 } };
 static constexpr uint32_t DECK_SIZE[2][2] = { { 20, 7 }, { 20, 20 } };
 // Scripted effect monster on team 1's field (raw constant values: no constant.lua is loaded)
 static constexpr uint32_t MOVER_CODE = 3000;
+static constexpr uint32_t SCOPED_CODE = 3001;
+static const char SCOPED_SCRIPT[] = R"(
+function c3001.initial_effect(c)
+	local e=Effect.CreateEffect(c)
+	e:SetType(0x2+0x800)      -- EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS
+	e:SetCode(0x1000+0x2)     -- EVENT_PHASE+PHASE_STANDBY
+	e:SetRange(0x2)           -- LOCATION_HAND
+	e:SetCountLimit(1)
+	e:SetOperation(c3001.op)
+	c:RegisterEffect(e)
+end
+function c3001.op(e,tp)
+	if Duel.GetTurnCount()~=3 then return end
+	local h=Duel.GetFieldGroupCount(tp,0x2,0)   -- own hand
+	local d=Duel.GetFieldGroupCount(tp,0x1,0)   -- own Deck
+	local o=Duel.GetFieldGroupCount(tp,0,0x2)   -- opposing hand
+	Debug.Message("scope "..h.." "..d.." "..o)
+	Duel.DiscardDeck(tp,1,0x40)                 -- mill 1 (REASON_EFFECT)
+end
+)";
+static int scope_seen[3] = { -1, -1, -1 };
 static const char MOVER_SCRIPT[] = R"(
 -- the core creates the c3000 table before loading this script
 function c3000.initial_effect(c)
@@ -82,18 +108,22 @@ static void card_reader(void*, uint32_t code, OCG_CardData* data) {
 	data->race = RACE_WARRIOR;
 	data->attack = 1000;
 	data->defense = 1000;
-	if(code == MOVER_CODE)
+	if(code == MOVER_CODE || code == SCOPED_CODE)
 		data->type = TYPE_MONSTER | TYPE_EFFECT;
 }
 static void card_reader_done(void*, OCG_CardData*) {}
 static int script_reader(void*, OCG_Duel duel, const char* name) {
 	if(std::strstr(name, "c3000.lua"))
 		return pLoadScript(duel, MOVER_SCRIPT, sizeof(MOVER_SCRIPT) - 1, name);
+	if(std::strstr(name, "c3001.lua"))
+		return pLoadScript(duel, SCOPED_SCRIPT, sizeof(SCOPED_SCRIPT) - 1, name);
 	return 0; // vanilla cards need no scripts
 }
 static void log_handler(void*, const char* str, int type) {
 	if(type == OCG_LOG_TYPE_ERROR)
 		std::printf("  [core error] %s\n", str);
+	if(std::strncmp(str, "scope ", 6) == 0)
+		std::sscanf(str + 6, "%d %d %d", &scope_seen[0], &scope_seen[1], &scope_seen[2]);
 }
 
 // Count cards in a location per duelist using QUERY_DUELIST
@@ -155,6 +185,11 @@ int main(int argc, char** argv) {
 		ci.team = 1; ci.con = 1; ci.duelist = 0; ci.loc = LOCATION_MZONE; ci.seq = 0; ci.pos = POS_FACEUP_ATTACK;
 		ci.code = MOVER_CODE;
 		pNewCard(duel, &ci);
+		// Scoped card starts in team 0 duelist 0's hand
+		OCG_NewCardInfo hi{};
+		hi.team = 0; hi.con = 0; hi.duelist = 0; hi.loc = LOCATION_HAND; hi.pos = POS_FACEDOWN_DEFENSE;
+		hi.code = SCOPED_CODE;
+		pNewCard(duel, &hi);
 	}
 	CHECK(pQueryCount(duel, 0, LOCATION_DECK) == 27, "team 0 deck should hold both decks (27), got %u", pQueryCount(duel, 0, LOCATION_DECK));
 	pStartDuel(duel);
@@ -172,7 +207,9 @@ int main(int argc, char** argv) {
 	auto check_opening = [&] {
 		for(uint8_t t = 0; t < 2; ++t) {
 			uint32_t h[2]; hand_by_duelist(duel, t, h);
-			CHECK(h[0] == 5 && h[1] == 5, "team %u opening hands should be 5/5, got %u/%u", t, h[0], h[1]);
+			// team 0 duelist 0 also holds the scoped test card
+			const uint32_t want0 = t == 0 ? 6 : 5;
+			CHECK(h[0] == want0 && h[1] == 5, "team %u opening hands should be %u/5, got %u/%u", t, want0, h[0], h[1]);
 		}
 		opening_checked = true;
 	};
@@ -219,6 +256,18 @@ int main(int argc, char** argv) {
 					(void)left1;
 					CHECK(draws_this_turn[tp][0] == 1, "turn %d: duelist 0 of team %u should draw 1, drew %d", turn, tp, draws_this_turn[tp][0]);
 					CHECK(draws_this_turn[tp][1] == 1, "turn %d: duelist 1 of team %u should draw 1, drew %d", turn, tp, draws_this_turn[tp][1]);
+				}
+				if(turn == 3) {
+					// Duelist 0: 6 in hand + 1 drawn = 7, Deck 20-5-1 = 14 (team: 13 in hand, 15 in Deck).
+					// Opposing team: 6 + 6 in hand. Then the effect milled 1 from duelist 0's Deck.
+					std::printf("  turn 3: hand-scoped effect saw own hand %d, own Deck %d, opposing hand %d\n",
+					            scope_seen[0], scope_seen[1], scope_seen[2]);
+					CHECK(scope_seen[0] == 7, "a hand effect should see only its duelist's hand (want 7, team has 13)");
+					CHECK(scope_seen[1] == 14, "a hand effect should see only its duelist's Deck (want 14, team has 15)");
+					CHECK(scope_seen[2] == 12, "the opposing hand stays team-wide for now (want 12)");
+					uint32_t dk[2]; loc_by_duelist(duel, 0, LOCATION_DECK, dk);
+					std::printf("  turn 3: team 0 Deck after milling 1: %u/%u\n", dk[0], dk[1]);
+					CHECK(dk[0] == 13 && dk[1] == 1, "the mill should come from duelist 0's Deck (want 13/1)");
 				}
 				if(turn == 4) {
 					// 7/7 in hand (5 opening + draws on turns 2 and 4) went to the GY and back with duelist 0 chosen
