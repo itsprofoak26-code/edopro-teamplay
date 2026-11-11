@@ -1,0 +1,32 @@
+{
+	"repos": [
+		{
+			"url": "https://github.com/ProjectIgnis/CardScripts",
+			"repo_name": "Card scripts (Project Ignis)",
+			"repo_path": "./repositories/cardscripts",
+			"script_path": ".",
+			"should_update": true,
+			"should_read": true
+		},
+		{
+			"url": "https://github.com/ProjectIgnis/BabelCDB",
+			"repo_name": "Card databases (Project Ignis)",
+			"repo_path": "./repositories/babelcdb",
+			"data_path": ".",
+			"should_update": true,
+			"should_read": true
+		}
+	],
+	"urls": [
+		{
+			"url": "https://pics.projectignis.org:2096/pics/{}.jpg",
+			"type": "pic"
+		},
+		{
+			"url": "https://pics.projectignis.org:2096/pics/field/{}.png",
+			"type": "field"
+		}
+	],
+	"servers": [
+	]
+}
