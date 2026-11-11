@@ -143,7 +143,22 @@ where the card is. On the field, GY or banished: team-wide (rule 2).
 - **Client:** each duelist sees their own hand by default. The **Hand** button cycles *Mine → Partner → Both*; with Both, each hand is shown as its own group. You can only hover or click the cards on display. Observers and replays always show the whole team hand.
 - **Test:** `tests/run_core_test.ps1` runs a headless team-play duel and checks draws, the hand size limit and deck-out.
 
-### Known gaps (planned for Milestone 2: effect scope)
+### Milestone 2: effect scope (in progress)
+- **Owner duelist (done):** each card remembers which duelist's Deck it started in. When a card
+  enters a hand, Deck or Extra Deck:
+  - if a duelist was chosen for the move, it goes to that duelist;
+  - if it moves between one team's private zones (draw, search, hand to Deck), it keeps its duelist;
+  - otherwise (from the field, GY or banished) it returns to its owner duelist.
+  The choice is a per-team override in the core (`team_dest_duelist`). The duelist-choice prompt
+  will set it. For now only the test hook `Debug.SetTeamDestDuelist(team, duelist)` does.
+- **Shuffling (no change needed):** each duelist's Deck is the cards carrying their tag, in list
+  order. Shuffling the whole list gives each duelist an independently shuffled Deck, and
+  "top of Deck" for a duelist is their last tagged card. What still needs work is effects that
+  read the top of the combined list directly (see below).
+- **Test:** the core test now checks a duelist choice (all cards to duelist 0) and return to owner.
+
+### Known gaps (still to do in Milestone 2)
+- **Deck-top effects:** "look at / send / excavate the top N cards" still read the combined list.
 - **Effect draws:** "draw" from a card effect uses that card's duelist. Otherwise it uses the duelist with more cards left. Nobody chooses a duelist yet.
 - **Other hand/Deck effects:** searches, milling, looking at the top of the Deck and card counts still see the whole team's hand and Deck.
 - **Shuffling:** shuffling the Deck mixes both duelists' cards together. Each card still keeps its owner tag.
