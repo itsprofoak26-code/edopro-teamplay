@@ -1,0 +1,8 @@
+# Separate git repos (each on branch "teamplay")
+/ocgcore/
+/edopro/
+/CardScripts/
+# Downloaded build deps and runtime
+/deps/
+/run/
+/tests/bin/
