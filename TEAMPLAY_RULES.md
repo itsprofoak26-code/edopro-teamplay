@@ -63,9 +63,15 @@ The effect has **team-wide access**.
 - **Seeing, counting and selecting** cover all teammates' hands, Decks and Extra Decks
   together. E.g. "+100 ATK for each card in your hand" counts both hands, and
   "discard 1 card" can discard from either hand.
-- When the effect **puts cards into, or draws from,** a hand or Deck and the card's
-  current zone does not already say which duelist it belongs to, **choose a duelist** to apply it to.
-  E.g. "draw 1", "add 1 card from your GY to your hand", "shuffle into your Deck".
+- When the effect **draws, mills, excavates or uses the top of a Deck**, or **puts cards into a
+  hand or Deck** from the GY or banished, **choose a duelist** to apply it to.
+  E.g. "draw 1", "send the top 3 cards of your Deck to the GY", "excavate the top 3 cards",
+  "add 1 card from your GY to your hand", "shuffle into your Deck".
+- **Once a duelist is chosen for a team, the whole effect applies to that duelist only** for
+  that team: their hand, Deck and Extra Deck. E.g. Graceful Charity: the chosen duelist draws 3
+  and discards 2 from their own hand. Card Destruction: one chosen duelist on each team discards
+  their hand and draws.
+- Effects with no choice keep team-wide access (e.g. a searcher lists both Decks).
 
 ### 3. Effects on the opposing team
 Whenever an effect will affect the **opponent's** hand, Deck or Extra Deck, the activating
@@ -74,7 +80,10 @@ E.g. "your opponent discards 1", "look at your opponent's hand", "your opponent 
 
 ### When the choice is made
 A duelist is chosen **when the effect is activated** and shown to everyone, so players know
-who is affected before they respond. Choosing a duelist is a team-play procedure, **not
+who is affected before they respond. If a cost already needs it (e.g. Card Trooper milling as
+a cost), the choice is made then and used for the whole effect. Exception: an effect that does
+not declare what it will do (no operation info, e.g. Pot of Duality) is asked the first time it
+reaches a Deck or hand, which can be while it resolves. Choosing a duelist is a team-play procedure, **not
 targeting**. It does not interact with "cannot be targeted" or "change the target player".
 
 ### Returning to the owner
