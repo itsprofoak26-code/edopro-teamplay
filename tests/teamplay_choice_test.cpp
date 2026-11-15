@@ -7,6 +7,11 @@
 //           must be asked when the Deck is revealed (we pick 0), and the card comes from that Deck.
 //   turn 5  "Card Destruction": each player discards their hand and draws that many. Must ask once
 //           per team (we pick own 1, opposing 0) and only the chosen duelists discard and draw.
+//   turn 7  "Droll & Lock Bird": a team 0 field effect adds the top card of a Deck to the hand
+//           (duelist 0's). A forced trigger on team 1's field reacts like Droll & Lock Bird
+//           ("neither player can add cards from the Deck to the hand", "cannot draw"). Team 0's
+//           duelist must be chosen automatically from the card that was added (no prompt), so in
+//           the End Phase duelist 0 can't draw or add from their Deck, while duelist 1 still can.
 // Build/run: see tests/run_core_test.ps1
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
@@ -77,6 +82,61 @@ static const char DESTRUCTION_SCRIPT[] = TRIGGER_HEAD(3005, 5)
 	"	c:RegisterEffect(e)\n"
 	"end\n";
 
+static const char SEARCH_SCRIPT[] = TRIGGER_HEAD(3006, 7)
+	"	e:SetOperation(function(e,tp) Duel.SendtoHand(Duel.GetDecktopGroup(tp,1),nil,0x40) end)\n"
+	"	c:RegisterEffect(e)\n"
+	"end\n";
+// Droll & Lock Bird's operation, as a forced trigger on EVENT_TO_HAND (1012) of an opponent's Deck card
+static const char DROLL_SCRIPT[] =
+	"function c3007.initial_effect(c)\n"
+	"	local e=Effect.CreateEffect(c)\n"
+	"	e:SetType(0x2+0x200)\n"
+	"	e:SetCode(1012)\n"
+	"	e:SetRange(0x4)\n"
+	"	e:SetCountLimit(1)\n"
+	"	e:SetCondition(function(e,tp,eg) return Duel.GetTurnCount()==7 and Duel.GetCurrentPhase()~=0x1\n"
+	"		and eg:IsExists(function(tc) return tc:IsControler(1-tp) and tc:IsPreviousLocation(0x1) end,1,nil) end)\n"
+	"	e:SetOperation(function(e,tp)\n"
+	"		local e1=Effect.CreateEffect(e:GetHandler())\n"
+	"		e1:SetType(0x2)\n"
+	"		e1:SetCode(65)\n"                       /* EFFECT_CANNOT_TO_HAND */
+	"		e1:SetTargetRange(0x1,0x1)\n"
+	"		e1:SetReset(0x40000000+0x200)\n"
+	"		Duel.RegisterEffect(e1,tp)\n"
+	"		local e2=Effect.CreateEffect(e:GetHandler())\n"
+	"		e2:SetType(0x2)\n"
+	"		e2:SetProperty(0x800)\n"                /* EFFECT_FLAG_PLAYER_TARGET */
+	"		e2:SetCode(25)\n"                       /* EFFECT_CANNOT_DRAW */
+	"		e2:SetTargetRange(1,1)\n"
+	"		e2:SetReset(0x40000000+0x200)\n"
+	"		Duel.RegisterEffect(e2,tp)\n"
+	"	end)\n"
+	"	c:RegisterEffect(e)\n"
+	"end\n";
+// End Phase of turn 7: try to draw as each duelist of team 0, and count the Deck cards that could be
+// added to the hand
+static const char PROBE_SCRIPT[] =
+	"function c3008.initial_effect(c)\n"
+	"	local e=Effect.CreateEffect(c)\n"
+	"	e:SetType(0x2+0x200)\n"
+	"	e:SetCode(0x1000+0x200)\n"              /* EVENT_PHASE+PHASE_END */
+	"	e:SetRange(0x4)\n"
+	"	e:SetCountLimit(1)\n"
+	"	e:SetCondition(function() return Duel.GetTurnCount()==7 end)\n"
+	"	e:SetOperation(function(e,tp)\n"
+	"		Debug.SetTeamDestDuelist(tp,0)\n"
+	"		local a=Duel.Draw(tp,1,0x40)\n"
+	"		Debug.SetTeamDestDuelist(tp,1)\n"
+	"		local b=Duel.Draw(tp,1,0x40)\n"
+	"		Debug.SetTeamDestDuelist(tp,255)\n"
+	"		local deck=Duel.GetFieldGroup(tp,0x1,0)\n"
+	"		local able=deck:FilterCount(Card.IsAbleToHand,nil)\n"
+	"		Debug.Message('lock '..a..' '..b..' '..able..' '..#deck)\n"
+	"	end)\n"
+	"	c:RegisterEffect(e)\n"
+	"end\n";
+static int lock_seen[4] = { -1, -1, -1, -1 };
+
 static void card_reader(void*, uint32_t code, OCG_CardData* data) {
 	std::memset(data, 0, sizeof(*data));
 	static uint16_t no_setcodes[1] = { 0 };
@@ -95,6 +155,9 @@ static int script_reader(void*, OCG_Duel duel, const char* name) {
 		{ "c3003.lua", TROOPER_SCRIPT, sizeof(TROOPER_SCRIPT) - 1 },
 		{ "c3004.lua", DUALITY_SCRIPT, sizeof(DUALITY_SCRIPT) - 1 },
 		{ "c3005.lua", DESTRUCTION_SCRIPT, sizeof(DESTRUCTION_SCRIPT) - 1 },
+		{ "c3006.lua", SEARCH_SCRIPT, sizeof(SEARCH_SCRIPT) - 1 },
+		{ "c3007.lua", DROLL_SCRIPT, sizeof(DROLL_SCRIPT) - 1 },
+		{ "c3008.lua", PROBE_SCRIPT, sizeof(PROBE_SCRIPT) - 1 },
 	};
 	for(auto& s : scripts)
 		if(std::strstr(name, s.file))
@@ -104,6 +167,8 @@ static int script_reader(void*, OCG_Duel duel, const char* name) {
 static void log_handler(void*, const char* str, int type) {
 	if(type == OCG_LOG_TYPE_ERROR)
 		std::printf("  [core error] %s\n", str);
+	if(std::strncmp(str, "lock ", 5) == 0)
+		std::sscanf(str + 5, "%d %d %d %d", &lock_seen[0], &lock_seen[1], &lock_seen[2], &lock_seen[3]);
 }
 
 // Count cards in a location per duelist using QUERY_DUELIST
@@ -155,10 +220,18 @@ int main(int argc, char** argv) {
 				pNewCard(duel, &ci);
 		}
 	}
-	for(uint8_t i = 0; i < 3; ++i) {
+	// Team 0's field: 3003-3006 and the probe 3008. Team 1's field: the Droll-like trigger 3007.
+	const uint32_t team0_cards[] = { 3003, 3004, 3005, 3006, 3008 };
+	for(uint8_t i = 0; i < 5; ++i) {
 		OCG_NewCardInfo ci{};
 		ci.team = 0; ci.con = 0; ci.duelist = 0; ci.loc = LOCATION_MZONE; ci.seq = i; ci.pos = POS_FACEUP_ATTACK;
-		ci.code = 3003 + i;
+		ci.code = team0_cards[i];
+		pNewCard(duel, &ci);
+	}
+	{
+		OCG_NewCardInfo ci{};
+		ci.team = 1; ci.con = 1; ci.duelist = 0; ci.loc = LOCATION_MZONE; ci.seq = 0; ci.pos = POS_FACEUP_ATTACK;
+		ci.code = 3007;
 		pNewCard(duel, &ci);
 	}
 	pStartDuel(duel);
@@ -166,7 +239,8 @@ int main(int argc, char** argv) {
 	int turn = 0;
 	int prompts = 0;                    // duelist-choice prompts answered
 	std::vector<uint64_t> announced;    // HINT_OPSELECTED duelist descriptions
-	bool checked[3] = {};
+	bool checked[4] = {};
+	int prompts_before_turn7 = -1;
 	bool done = false;
 	int guard = 0;
 	// Our answers: { turn, team asked about, duelist we pick }
@@ -190,7 +264,27 @@ int main(int argc, char** argv) {
 			const uint8_t msg = m[0];
 			const uint8_t* d = m + 1;
 			switch(msg) {
-			case MSG_NEW_TURN: ++turn; break;
+			case MSG_NEW_TURN:
+				++turn;
+				if(turn == 7)
+					prompts_before_turn7 = prompts;
+				if(turn == 8) {
+					// Turn 7: duelist 0 of team 0 added a card from their Deck, so the Droll-like lock
+					// hits only them: they can't draw (0) and none of their Deck can be added; duelist 1
+					// draws (1) and all of their Deck can still be added.
+					// team 0 Deck before turn 7: 12/3; turn 7 drew 1/1 -> 11/2; search -1 from duelist 0 -> 10/2;
+					// duelist 1's End Phase draw -> 10/1. Addable: duelist 1's 1 card of 11.
+					std::printf("  turn 7 (Droll & Lock Bird): draws locked/free %d/%d, Deck cards addable %d of %d, prompts %d, choices announced %zu\n",
+					            lock_seen[0], lock_seen[1], lock_seen[2], lock_seen[3], prompts - prompts_before_turn7, announced.size());
+					CHECK(prompts == prompts_before_turn7, "the locked duelist must be chosen automatically, without a prompt");
+					CHECK(!announced.empty() && announced.back() == TEAM_DUELIST_DESC + 0 * 2 + 0, "the automatic choice (team 0 duelist 0) should be announced");
+					CHECK(lock_seen[0] == 0, "the duelist who added the card must not be able to draw");
+					CHECK(lock_seen[1] == 1, "their teammate must still be able to draw");
+					CHECK(lock_seen[2] == 1 && lock_seen[3] == 11, "only the teammate's Deck cards can be added to the hand (want 1 of 11)");
+					checked[3] = true;
+					done = true;
+				}
+				break;
 			case MSG_HINT: {
 				uint64_t desc; std::memcpy(&desc, d + 2, 8);
 				if(d[0] == HINT_OPSELECTED && desc >= TEAM_DUELIST_DESC && desc < TEAM_DUELIST_DESC + 4)
@@ -238,8 +332,6 @@ int main(int argc, char** argv) {
 					CHECK(h1[0] == 6 && h1[1] == 6 && k1[0] == 7 && k1[1] == 13, "team 1: only duelist 0 should discard and redraw (want hand 6/6, Deck 7/13)");
 					CHECK(g1 == 8, "team 1 GY: 2 hand-limit + 6 discarded (want 8, got %u)", g1);
 					checked[2] = true;
-					done = true;
-					break;
 				}
 				int32_t resp = 7; // go to End Phase
 				pSetResponse(duel, &resp, sizeof(resp));
@@ -271,8 +363,8 @@ int main(int argc, char** argv) {
 		}
 		if(status == OCG_DUEL_STATUS_END) done = true;
 	}
-	CHECK(checked[0] && checked[1] && checked[2], "not every scenario ran (turns 1, 3, 5)");
-	CHECK(announced.size() == static_cast<size_t>(prompts), "every choice should be announced (%zu of %d)", announced.size(), prompts);
+	CHECK(checked[0] && checked[1] && checked[2] && checked[3], "not every scenario ran (turns 1, 3, 5, 7)");
+	CHECK(announced.size() == static_cast<size_t>(prompts) + 1, "every choice should be announced, plus the automatic one (%zu for %d prompts)", announced.size(), prompts);
 	pDestroyDuel(duel);
 	std::printf(failures ? "FAILED (%d)\n" : "PASSED\n", failures);
 	return failures ? 1 : 0;

@@ -86,6 +86,20 @@ not declare what it will do (no operation info, e.g. Pot of Duality) is asked th
 reaches a Deck or hand, which can be while it resolves. Choosing a duelist is a team-play procedure, **not
 targeting**. It does not interact with "cannot be targeted" or "change the target player".
 
+### Triggered by one duelist's cards
+When an effect is triggered by cards that are now in **one duelist's** hand, Deck or Extra Deck
+(e.g. "if your opponent adds a card from their Deck to their hand"), that duelist is the choice
+for their team. Nobody is asked, and the choice is announced.
+
+### Lingering effects ("for the rest of this turn…")
+Restrictions and other lasting effects an effect creates (e.g. "neither player can add cards from
+the Deck to the hand") apply per team to the duelist that effect applies to:
+- the effect is bound to one duelist (rule 1, or a chosen duelist) → only that duelist is affected;
+- otherwise → the whole team.
+
+E.g. **Droll & Lock Bird** (activated from the hand) locks only the duelist who added the card
+and the duelist who activated Droll. Their teammates can still add from the Deck and draw.
+
 ### Returning to the owner
 "Return to its owner's hand/Deck/Extra Deck" sends the card back to the duelist whose Deck it
 started in. No duelist is chosen.
