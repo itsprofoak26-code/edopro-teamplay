@@ -40,6 +40,12 @@ Write-Host "== Publishing Team Play v$version"
 $cfg = if ($DebugBuild) { 'debug' } else { 'release' }
 if ($DebugBuild) { & "$root\build.ps1" -NoCopy } else { & "$root\build.ps1" -Release -NoCopy }
 
+# keep this version's exe, dll and debug symbols, so crash dumps from players can be read later
+$sym = Join-Path $root "symbols\v$version"
+New-Item -ItemType Directory -Force $sym | Out-Null
+Copy-Item "$root\edopro\bin\$cfg\ygoprodll.exe", "$root\edopro\bin\$cfg\ocgcore.dll",
+    "$root\edopro\bin\$cfg\ygoprodll.pdb", "$root\edopro\bin\$cfg\ocgcore.pdb" $sym -Force
+
 # 3. package
 if (-not (Test-Path $site)) { Invoke-Native $gh @('repo', 'clone', $repo, $site) }
 Invoke-Native git @('-C', $site, 'pull', '--ff-only')
