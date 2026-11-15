@@ -12,6 +12,9 @@
 //           ("neither player can add cards from the Deck to the hand", "cannot draw"). Team 0's
 //           duelist must be chosen automatically from the card that was added (no prompt), so in
 //           the End Phase duelist 0 can't draw or add from their Deck, while duelist 1 still can.
+//   retry   the first duelist-choice prompt is answered with an invalid option first. The engine must
+//           send MSG_RETRY and keep the same prompt open (the server re-sends it to the team instead
+//           of ending the duel), and accept the valid answer that follows.
 // Build/run: see tests/run_core_test.ps1
 #define _CRT_SECURE_NO_WARNINGS
 #include <windows.h>
@@ -238,6 +241,8 @@ int main(int argc, char** argv) {
 
 	int turn = 0;
 	int prompts = 0;                    // duelist-choice prompts answered
+	bool sent_invalid = false, saw_retry = false;
+	int32_t pending_valid = -1;         // the valid answer to give after the deliberate retry
 	std::vector<uint64_t> announced;    // HINT_OPSELECTED duelist descriptions
 	bool checked[4] = {};
 	int prompts_before_turn7 = -1;
@@ -300,7 +305,14 @@ int main(int argc, char** argv) {
 				const int32_t resp = pick(team);
 				std::printf("  turn %d: asked to choose a duelist of team %u -> %d\n", turn, team, resp);
 				++prompts;
-				pSetResponse(duel, &resp, sizeof(resp));
+				if(!sent_invalid) {
+					// Answer the very first prompt with an option that does not exist
+					sent_invalid = true;
+					pending_valid = resp;
+					const int32_t bad = 7;
+					pSetResponse(duel, &bad, sizeof(bad));
+				} else
+					pSetResponse(duel, &resp, sizeof(resp));
 				responded = true;
 				break;
 			}
@@ -349,7 +361,20 @@ int main(int argc, char** argv) {
 				responded = true;
 				break;
 			}
-			case MSG_RETRY: std::printf("  core asked for a retry (invalid response) on turn %d\n", turn); ++failures; done = true; break;
+			case MSG_RETRY: {
+				if(pending_valid >= 0 && !saw_retry) {
+					// Expected: the engine keeps the prompt open; answer it again, validly
+					saw_retry = true;
+					std::printf("  turn %d: invalid answer rejected (MSG_RETRY); answering again\n", turn);
+					pSetResponse(duel, &pending_valid, sizeof(pending_valid));
+					pending_valid = -1;
+					responded = true;
+					break;
+				}
+				std::printf("  core asked for a retry (invalid response) on turn %d\n", turn);
+				++failures; done = true;
+				break;
+			}
 			case MSG_WIN: std::printf("  duel ended unexpectedly on turn %d\n", turn); ++failures; done = true; break;
 			default:
 				if((msg >= MSG_SELECT_EFFECTYN && msg <= MSG_SELECT_UNSELECT_CARD) || msg == MSG_ROCK_PAPER_SCISSORS ||
@@ -364,6 +389,7 @@ int main(int argc, char** argv) {
 		if(status == OCG_DUEL_STATUS_END) done = true;
 	}
 	CHECK(checked[0] && checked[1] && checked[2] && checked[3], "not every scenario ran (turns 1, 3, 5, 7)");
+	CHECK(saw_retry, "the deliberate invalid answer should have been rejected with MSG_RETRY");
 	CHECK(announced.size() == static_cast<size_t>(prompts) + 1, "every choice should be announced, plus the automatic one (%zu for %d prompts)", announced.size(), prompts);
 	pDestroyDuel(duel);
 	std::printf(failures ? "FAILED (%d)\n" : "PASSED\n", failures);
