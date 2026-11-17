@@ -34,8 +34,8 @@ if (-not $Rebuild) {
     $version++
     Set-Content -Path $verFile -Value $version -NoNewline
 }
-$display = "1.$version"   # public version name: build 6 -> v1.6 (check files keep the build number)
-Write-Host "== Publishing Team Play v$display (build $version)"
+$display = "$version"   # public version name: the plain build number (v1, v2, ...)
+Write-Host "== Publishing Team Play v$display"
 
 # 2. build
 $cfg = if ($DebugBuild) { 'debug' } else { 'release' }

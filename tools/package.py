@@ -27,9 +27,8 @@ UPDATES_REPO = "teamplay-updates"
 
 
 def display_version(version):
-    """Public version name for build number N: "1.N" (build 6 -> v1.6). The updater's check files
-    keep using the plain build number."""
-    return f"1.{version}"
+    """Public version name: the plain build number (v1, v2, ...)."""
+    return str(version)
 
 
 def release_url(version, name):
