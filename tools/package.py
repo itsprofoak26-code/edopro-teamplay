@@ -26,8 +26,14 @@ PACKAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 UPDATES_REPO = "teamplay-updates"
 
 
+def display_version(version):
+    """Public version name for build number N: "1.N" (build 6 -> v1.6). The updater's check files
+    keep using the plain build number."""
+    return f"1.{version}"
+
+
 def release_url(version, name):
-    return f"https://github.com/{OWNER}/{UPDATES_REPO}/releases/download/v{version}/{name}"
+    return f"https://github.com/{OWNER}/{UPDATES_REPO}/releases/download/v{display_version(version)}/{name}"
 
 
 def git_files(repo):
@@ -110,7 +116,8 @@ def update_site(site, version, update_zip, install_zip, notes):
             json.dump(manifest, f, indent=1)
     install_url = release_url(version, os.path.basename(install_zip))
     with open(os.path.join(site, "latest.json"), "w", newline="\n") as f:
-        json.dump({"version": version, "install": install_url, "update": manifest[0]["url"], "notes": notes}, f, indent=1)
+        json.dump({"version": version, "display": display_version(version), "install": install_url,
+                   "update": manifest[0]["url"], "notes": notes}, f, indent=1)
     with open(os.path.join(site, ".nojekyll"), "w") as f:
         pass
     with open(os.path.join(site, "index.html"), "w", encoding="utf-8", newline="\n") as f:
@@ -122,7 +129,7 @@ a.button{{display:inline-block;padding:.6rem 1rem;background:#2563eb;color:#fff;
 </head><body>
 <h1>EDOPro Team Play</h1>
 <p>A 2v2 mode for EDOPro where both teammates play at the same time.</p>
-<p><a class="button" href="{install_url}">Download v{version} for Windows</a></p>
+<p><a class="button" href="{install_url}">Download v{display_version(version)} for Windows</a></p>
 <p>Unzip it anywhere and run <code>ygoprodll.exe</code>. The game keeps itself up to date: card updates
 come from Project Ignis, and Team Play updates are offered from the main menu.</p>
 <p>Rules: <a href="https://github.com/{OWNER}/edopro-teamplay/blob/main/TEAMPLAY_RULES.md">TEAMPLAY_RULES.md</a>.
@@ -143,8 +150,8 @@ def main():
     ap.add_argument("--notes", default="")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    update_zip = os.path.join(a.out, f"update-v{a.version}.zip")
-    install_zip = os.path.join(a.out, f"EDOPro-TeamPlay-v{a.version}.zip")
+    update_zip = os.path.join(a.out, f"update-v{display_version(a.version)}.zip")
+    install_zip = os.path.join(a.out, f"EDOPro-TeamPlay-v{display_version(a.version)}.zip")
     build_update_zip(update_zip, a.bin, a.run)
     count = build_install_zip(install_zip, a.bin, a.run, a.cardscripts)
     update_site(a.site, a.version, update_zip, install_zip, a.notes)

@@ -34,14 +34,15 @@ if (-not $Rebuild) {
     $version++
     Set-Content -Path $verFile -Value $version -NoNewline
 }
-Write-Host "== Publishing Team Play v$version"
+$display = "1.$version"   # public version name: build 6 -> v1.6 (check files keep the build number)
+Write-Host "== Publishing Team Play v$display (build $version)"
 
 # 2. build
 $cfg = if ($DebugBuild) { 'debug' } else { 'release' }
 if ($DebugBuild) { & "$root\build.ps1" -NoCopy } else { & "$root\build.ps1" -Release -NoCopy }
 
 # keep this version's exe, dll and debug symbols, so crash dumps from players can be read later
-$sym = Join-Path $root "symbols\v$version"
+$sym = Join-Path $root "symbols\v$display"
 New-Item -ItemType Directory -Force $sym | Out-Null
 Copy-Item "$root\edopro\bin\$cfg\ygoprodll.exe", "$root\edopro\bin\$cfg\ocgcore.dll",
     "$root\edopro\bin\$cfg\ygoprodll.pdb", "$root\edopro\bin\$cfg\ocgcore.pdb" $sym -Force
@@ -54,18 +55,18 @@ Invoke-Native python @('-I', "$root\tools\package.py", '--version', "$version", 
     '--run', "$root\run", '--cardscripts', "$root\CardScripts", '--out', $out, '--site', $site, '--notes', $Notes)
 
 # 4. release assets
-$title = "Team Play v$version"
+$title = "Team Play v$display"
 $relNotes = if ($Notes) { $Notes } else { $title }
-Invoke-Native $gh @('release', 'create', "v$version", '--repo', $repo, '--title', $title, '--notes', $relNotes,
-    (Join-Path $out "update-v$version.zip"), (Join-Path $out "EDOPro-TeamPlay-v$version.zip"))
+Invoke-Native $gh @('release', 'create', "v$display", '--repo', $repo, '--title', $title, '--notes', $relNotes,
+    (Join-Path $out "update-v$display.zip"), (Join-Path $out "EDOPro-TeamPlay-v$display.zip"))
 
 # 5. Pages site
 Invoke-Native git @('-C', $site, 'add', '-A')
-Invoke-Native git @('-C', $site, 'commit', '-m', "Team Play v$version")
+Invoke-Native git @('-C', $site, 'commit', '-m', "Team Play v$display")
 Invoke-Native git @('-C', $site, 'push')
 
 # 6. record the version in this repo (nothing to commit on -Rebuild)
 Invoke-Native git @('-C', $root, 'add', 'TEAMPLAY_VERSION')
-Invoke-Native git @('-C', $root, 'commit', '-m', "Publish Team Play v$version") -AllowFail
-Write-Host "== Published v$version"
+Invoke-Native git @('-C', $root, 'commit', '-m', "Publish Team Play v$display") -AllowFail
+Write-Host "== Published v$display"
 Write-Host "   Download page: https://itsprofoak26-code.github.io/teamplay-updates/"
