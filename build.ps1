@@ -37,7 +37,7 @@ $v = "$deps\vcpkg\scripts\buildsystems\msbuild"
 if ($LASTEXITCODE) { throw 'build failed' }
 
 $bin = "$edopro\bin\$($config.ToLower())"
-Write-Host "Built Team Play v$version ($config) in $bin"
+Write-Host "Built Team Play v1.$version (build $version, $config) in $bin"
 if (-not $NoCopy) {
     Copy-Item "$bin\ygoprodll.exe", "$bin\ocgcore.dll" "$root\run\" -Force
     Write-Host "Copied ygoprodll.exe + ocgcore.dll to $root\run"
