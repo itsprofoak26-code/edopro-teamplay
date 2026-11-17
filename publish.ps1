@@ -70,3 +70,4 @@ Invoke-Native git @('-C', $root, 'add', 'TEAMPLAY_VERSION')
 Invoke-Native git @('-C', $root, 'commit', '-m', "Publish Team Play v$display") -AllowFail
 Write-Host "== Published v$display"
 Write-Host "   Download page: https://itsprofoak26-code.github.io/teamplay-updates/"
+exit 0
