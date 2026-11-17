@@ -100,6 +100,14 @@ the Deck to the hand") apply per team to the duelist that effect applies to:
 E.g. **Droll & Lock Bird** (activated from the hand) locks only the duelist who added the card
 and the duelist who activated Droll. Their teammates can still add from the Deck and draw.
 
+Those lasting effects keep that binding whenever they act later, even outside a chain and after
+the card has left the hand. E.g. **Mulcharmy Fuwalos**: every "draw 1 each time…" draw comes from
+the activating duelist's Deck, and its End Phase check counts and shuffles only that duelist's hand.
+
+**Exception: activation limits stay team-wide.** Restrictions a card puts on its own activation
+("you can only activate 1 other Mulcharmy monster effect this turn", "you cannot Special Summon
+the turn you activate this") apply to the **whole team** (engine: `EFFECT_FLAG_OATH`).
+
 ### Returning to the owner
 "Return to its owner's hand/Deck/Extra Deck" sends the card back to the duelist whose Deck it
 started in. No duelist is chosen.
